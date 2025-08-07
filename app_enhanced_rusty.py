@@ -597,3 +597,5 @@ def get_render_status(user_id):
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# Triggering redeploy after fixing syntax error
