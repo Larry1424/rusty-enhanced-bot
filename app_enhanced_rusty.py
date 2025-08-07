@@ -128,7 +128,16 @@ The customer's journey should feel natural and progressive, not repetitive or pu
 """
 
 def get_or_create_user_id():
-    """Get user ID from session or create a new one"""
+    """Get user ID from request or session or create a new one"""
+    # First check if user_id was sent in the request
+    request_data = request.get_json() or {}
+    user_id = request_data.get("user_id")
+    
+    if user_id:
+        session["user_id"] = user_id
+        return user_id
+        
+    # Otherwise check session
     if "user_id" not in session:
         session["user_id"] = memory_manager._generate_user_id()
         logger.info(f"Created new session for user: {session['user_id']}")
@@ -272,6 +281,77 @@ def log_conversation(user_id, user_message, bot_response, memory_context=""):
         logger.info(f"Enhanced log created for user {user_id}")
     except Exception as e:
         logger.error(f"Error logging conversation: {e}")
+
+@app.route("/chat", methods=["POST"])
+def chat():
+    """Enhanced chat endpoint with full conversation intelligence"""
+    try:
+        user_message = request.json.get("message", "")
+        if not user_message.strip():
+            return jsonify({"error": "Empty message"}), 400
+        
+        # Get or create user ID
+        user_id = get_or_create_user_id()
+        
+        # Load user memory
+        memory = memory_manager.load_memory(user_id)
+        
+        # Build conversation context summary
+        context_summary = memory_manager.build_context_summary(memory)
+        
+        # Build complete message history for API
+        message_history = build_message_history(memory, user_message, context_summary)
+        
+        # Call OpenAI API
+        response = openai.ChatCompletion.create(
+            model="gpt-4o",
+            messages=message_history,
+            temperature=0.7,
+            max_tokens=800
+        )
+        
+        bot_response = response.choices[0].message["content"]
+        
+        # Add interaction to memory
+        memory_manager.add_interaction(memory, user_message, bot_response)
+        memory_manager.save_memory(memory)
+        
+        return jsonify({
+            "reply": bot_response,
+            "user_id": user_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in chat: {e}")
+        return jsonify({"error": "Something went wrong."}), 500
+
+@app.route("/memory/<user_id>", methods=["GET"])
+def get_user_memory(user_id):
+    """Debug endpoint to view comprehensive user memory"""
+    try:
+        stats = memory_manager.get_user_stats(user_id)
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/render-status/<user_id>", methods=["GET"])
+def get_render_status(user_id):
+    """Get render workflow status for a user"""
+    try:
+        memory = memory_manager.load_memory(user_id)
+        render_stage = memory_manager.get_render_workflow_stage(memory)
+        missing_fields = get_missing_contact_fields(memory)
+        
+        return jsonify({
+            "user_id": user_id,
+            "render_requested": memory.get("render_requested", False),
+            "render_stage": render_stage,
+            "contact_info": memory.get("contact_info", {}),
+            "missing_fields": missing_fields,
+            "render_details": memory.get("render_details", {})
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/cta-test/<user_id>", methods=["POST"])
 def test_cta_logic(user_id):
@@ -456,7 +536,6 @@ def ping():
         "timestamp": datetime.now().isoformat()
     })
 
-# Optional: Cleanup expired memories on startup
 if __name__ == "__main__":
     with app.app_context():
         try:
@@ -473,92 +552,4 @@ if __name__ == "__main__":
         except Exception as e:
             logger.error(f"Error during startup cleanup: {e}")
     
-    app.run()
-
-@app.route("/chat", methods=["POST"])
-def chat():
-    """Enhanced chat endpoint with full conversation intelligence"""
-    try:
-        user_message = request.json.get("message", "")
-        if not user_message.strip():
-            return jsonify({"error": "Empty message"}), 400
-            
-        # Get or create user ID
-def get_or_create_user_id():
-    """Get user ID from request or session or create a new one"""
-    # First check if user_id was sent in the request
-    request_data = request.get_json() or {}
-    user_id = request_data.get("user_id")
-    
-    if user_id:
-        session["user_id"] = user_id
-        return user_id
-    
-    # Otherwise check session
-    if "user_id" not in session:
-        session["user_id"] = memory_manager._generate_user_id()
-        logger.info(f"Created new session for user: {session['user_id']}")
-    return session["user_id"]
-        
-        # Load user memory
-        memory = memory_manager.load_memory(user_id)
-        
-        # Build conversation context summary
-        context_summary = memory_manager.build_context_summary(memory)
-        
-        # Build complete message history for API
-        message_history = build_message_history(memory, user_message, context_summary)
-        
-        # Call OpenAI API
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",
-            messages=message_history,
-            temperature=0.7,
-            max_tokens=800
-        )
-        
-        bot_response = response.choices[0].message["content"]
-        
-        # Add interaction to memory
-        memory_manager.add_interaction(memory, user_message, bot_response)
-        memory_manager.save_memory(memory)
-        
-        return jsonify({
-            "reply": bot_response,
-            "user_id": user_id
-        })
-        
-    except Exception as e:
-        logger.error(f"Error in chat: {e}")
-        return jsonify({"error": "Something went wrong."}), 500
-
-@app.route("/memory/<user_id>", methods=["GET"])
-def get_user_memory(user_id):
-    """Debug endpoint to view comprehensive user memory"""
-    try:
-        stats = memory_manager.get_user_stats(user_id)
-        return jsonify(stats)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/render-status/<user_id>", methods=["GET"])
-def get_render_status(user_id):
-    """Get render workflow status for a user"""
-    try:
-        memory = memory_manager.load_memory(user_id)
-        render_stage = memory_manager.get_render_workflow_stage(memory)
-        missing_fields = get_missing_contact_fields(memory)
-        
-        return jsonify({
-            "user_id": user_id,
-            "render_requested": memory.get("render_requested", False),
-            "render_stage": render_stage,
-            "contact_info": memory.get("contact_info", {}),
-            "missing_fields": missing_fields,
-            "render_details": memory.get("render_details", {})
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-if __name__ == "__main__":
     app.run(debug=True)
