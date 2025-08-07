@@ -484,7 +484,21 @@ def chat():
             return jsonify({"error": "Empty message"}), 400
             
         # Get or create user ID
-        user_id = get_or_create_user_id()
+def get_or_create_user_id():
+    """Get user ID from request or session or create a new one"""
+    # First check if user_id was sent in the request
+    request_data = request.get_json() or {}
+    user_id = request_data.get("user_id")
+    
+    if user_id:
+        session["user_id"] = user_id
+        return user_id
+    
+    # Otherwise check session
+    if "user_id" not in session:
+        session["user_id"] = memory_manager._generate_user_id()
+        logger.info(f"Created new session for user: {session['user_id']}")
+    return session["user_id"]
         
         # Load user memory
         memory = memory_manager.load_memory(user_id)
