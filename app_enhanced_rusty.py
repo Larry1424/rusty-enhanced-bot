@@ -9,6 +9,7 @@ import json
 import re
 from enhanced_memory_manager import EnhancedMemoryManager
 from conversation_flow_engine import ConversationFlowEngine
+print("Deployment test: This should trigger a redeploy.")
 
 # Load environment variables
 load_dotenv()
@@ -455,22 +456,23 @@ def ping():
     })
 
 # Optional: Cleanup expired memories on startup
-@app.before_first_request
-def startup_cleanup():
-    """Enhanced startup tasks"""
-    try:
-        # Cleanup expired memories
-        cleaned = memory_manager.cleanup_expired_memories()
-        if cleaned > 0:
-            logger.info(f"Startup cleanup: removed {cleaned} expired memory records")
+if __name__ == "__main__":
+    with app.app_context():
+        try:
+            # Cleanup expired memories
+            cleaned = memory_manager.cleanup_expired_memories()
+            if cleaned > 0:
+                logger.info(f"Startup cleanup: removed {cleaned} expired memory records")
+            
+            # Log system initialization
+            logger.info("Enhanced Rusty chatbot initialized successfully")
+            logger.info(f"Memory expiry: {memory_manager.expiry_days} days")
+            logger.info(f"Max interactions per user: {memory_manager.max_interactions}")
         
-        # Log system initialization
-        logger.info("Enhanced Rusty chatbot initialized successfully")
-        logger.info(f"Memory expiry: {memory_manager.expiry_days} days")
-        logger.info(f"Max interactions per user: {memory_manager.max_interactions}")
-        
-    except Exception as e:
-        logger.error(f"Error during startup cleanup: {e}")
+        except Exception as e:
+            logger.error(f"Error during startup cleanup: {e}")
+    
+    app.run()
 
 if __name__ == "__main__":
     app.run(debug=True).route("/chat", methods=["POST"])
@@ -599,3 +601,4 @@ def get_render_status(user_id):
         return jsonify({"error": str(e)}), 500
 
 # Triggering redeploy after fixing syntax error
+# temp change to force push
