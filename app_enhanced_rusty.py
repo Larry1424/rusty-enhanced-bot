@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["*"], methods=["GET", "POST"], allow_headers=["Content-Type"])
 app.secret_key = os.getenv("SESSION_SECRET", "something-very-secret")
 
 # Initialize Enhanced Systems
