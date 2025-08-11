@@ -94,8 +94,8 @@ VOICE EXAMPLES (use variations):
 - "If your space is a little tricky, no worries — we've seen it all."
 
 BUDGET CONVERSATIONS:
-If price feels high: "Totally understand — we also offer semi-inground pools starting around $40,000. Great way to get that backyard pool feel with a more approachable budget."
-
+If price feels high: "Totally understand — we also offer semi-inground pools starting around $40,000, and above-ground pools starting around $10,000 installed. Both are great ways to get that backyard pool feel with a more approachable budget."
+                        
 QUALITY DISCUSSIONS:
 Emphasize materials that last: "We stick with materials that hold up — concrete coping and solid tile so you're not redoing things in a few years."
 
@@ -316,6 +316,25 @@ def chat():
         memory_manager.add_interaction(memory, user_message, bot_response)
         memory_manager.save_memory(memory)
         
+    # --- NEW: persist this conversation turn in Postgres ---
+    try:
+        with memory_manager._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO conversation_turns (user_id, user_message, bot_response)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (
+                        user_id,
+                        user_message,  # from the request
+                        bot_response   # from GPT's reply
+                    )
+                )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Failed to insert conversation_turn (chat): {e}")        
+        
         return jsonify({
             "reply": bot_response,
             "user_id": user_id
@@ -387,11 +406,26 @@ def simulate_response():
         cta_type = data.get("cta_type", "consult")
         response = data.get("response", "not yet")
         
-        memory = memory_manager.load_memory(user_id)
-        memory_manager.record_cta_attempt(memory, cta_type, response)
-        memory_manager.save_memory(memory)
-        
-        return jsonify({
+      # --- NEW: persist this turn in Postgres ---
+        try:
+            with memory_manager._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO conversation_turns (user_id, user_message, bot_response)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (
+                            user_id,
+                            f"CTA response: {cta_type} → {response_text}",
+                            f"Updated stage: {memory.get('buyer_stage')}, "
+                            f"Render requested: {memory.get('render_requested')}"
+                        )
+                    )
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to insert conversation_turn (CTA): {e}")
+
             "message": f"Recorded {cta_type} CTA response: {response}",
             "updated_stage": memory.get("buyer_stage"),
             "render_requested": memory.get("render_requested")
