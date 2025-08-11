@@ -423,15 +423,16 @@ def simulate_response():
                         )
                     )
                 conn.commit()
-        except Exception as e:
-            logger.error(f"Failed to insert conversation_turn (CTA): {e}")
-
-            "message": f"Recorded {cta_type} CTA response: {response}",
-            "updated_stage": memory.get("buyer_stage"),
-            "render_requested": memory.get("render_requested")
-        })
+                
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Failed to insert conversation_turn (CTA): {e}")
+
+    # Return to the client AFTER the logging attempt
+    return jsonify({
+        "message": f"Recorded {cta_type} CTA response: {response}",
+        "updated_stage": memory.get("buyer_stage"),
+        "render_requested": memory.get("render_requested")
+    })
 
 @app.route("/cleanup", methods=["POST"])
 def cleanup_memories():
