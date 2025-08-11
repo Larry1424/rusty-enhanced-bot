@@ -289,19 +289,19 @@ def chat():
         user_message = request.json.get("message", "")
         if not user_message.strip():
             return jsonify({"error": "Empty message"}), 400
-        
+
         # Get or create user ID
         user_id = get_or_create_user_id()
-        
+
         # Load user memory
         memory = memory_manager.load_memory(user_id)
-        
+
         # Build conversation context summary
         context_summary = memory_manager.build_context_summary(memory)
-        
+
         # Build complete message history for API
         message_history = build_message_history(memory, user_message, context_summary)
-        
+
         # Call OpenAI API
         response = openai.ChatCompletion.create(
             model="gpt-4o",
@@ -309,41 +309,32 @@ def chat():
             temperature=0.7,
             max_tokens=800
         )
-        
+
         bot_response = response.choices[0].message["content"]
-        
+
         # Add interaction to memory
         memory_manager.add_interaction(memory, user_message, bot_response)
         memory_manager.save_memory(memory)
-        
-    # --- NEW: persist this conversation turn in Postgres ---
-    try:
-        with memory_manager._get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO conversation_turns (user_id, user_message, bot_response)
-                    VALUES (%s, %s, %s)
-                    """,
-                    (
-                        user_id,
-                        user_message,  # from the request
-                        bot_response   # from GPT's reply
+
+        # Persist this conversation turn in Postgres (best-effort)
+        try:
+            with memory_manager._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO conversation_turns (user_id, user_message, bot_response)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (user_id, user_message, bot_response)
                     )
-                )
-            conn.commit()
-    except Exception as e:
-        logger.error(f"Failed to insert conversation_turn (chat): {e}")        
-        
-        return jsonify({
-            "reply": bot_response,
-            "user_id": user_id
-        })
-        
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to insert conversation_turn (chat): {e}")
+
+        return jsonify({"reply": bot_response, "user_id": user_id})
     except Exception as e:
         logger.error(f"Error in chat: {e}")
         return jsonify({"error": "Something went wrong."}), 500
-
 @app.route("/memory/<user_id>", methods=["GET"])
 def get_user_memory(user_id):
     """Debug endpoint to view comprehensive user memory"""
@@ -401,12 +392,15 @@ def test_cta_logic(user_id):
 def simulate_response():
     """Simulate user response to CTA (development endpoint)"""
     try:
-        data = request.json
+        data = request.json or {}
         user_id = data.get("user_id")
         cta_type = data.get("cta_type", "consult")
-        response = data.get("response", "not yet")
-        
-      # --- NEW: persist this turn in Postgres ---
+        response_text = data.get("response", "not yet")
+
+        # Load memory for context if available
+        memory = memory_manager.load_memory(user_id) if user_id else {}
+
+        # Best-effort DB log of this simulated turn
         try:
             with memory_manager._get_connection() as conn:
                 with conn.cursor() as cur:
@@ -418,22 +412,24 @@ def simulate_response():
                         (
                             user_id,
                             f"CTA response: {cta_type} → {response_text}",
-                            f"Updated stage: {memory.get('buyer_stage')}, "
-                            f"Render requested: {memory.get('render_requested')}"
+                            (
+                                f"Updated stage: {memory.get('buyer_stage')}, "
+                                f"Render requested: {memory.get('render_requested')}"
+                            )
                         )
                     )
                 conn.commit()
-                
+        except Exception as e:
+            logger.error(f"Failed to insert conversation_turn (CTA): {e}")
+
+        # Return to the client AFTER the logging attempt
+        return jsonify({
+            "message": f"Recorded {cta_type} CTA response: {response_text}",
+            "updated_stage": memory.get("buyer_stage"),
+            "render_requested": memory.get("render_requested")
+        })
     except Exception as e:
-        logger.error(f"Failed to insert conversation_turn (CTA): {e}")
-
-    # Return to the client AFTER the logging attempt
-    return jsonify({
-        "message": f"Recorded {cta_type} CTA response: {response}",
-        "updated_stage": memory.get("buyer_stage"),
-        "render_requested": memory.get("render_requested")
-    })
-
+        return jsonify({"error": str(e)}), 500
 @app.route("/cleanup", methods=["POST"])
 def cleanup_memories():
     """Endpoint to clean up expired memories"""
