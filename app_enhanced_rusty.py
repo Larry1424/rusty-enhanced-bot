@@ -561,7 +561,6 @@ def gallery_image(filename):
     """Serve gallery images"""
     return send_from_directory("static/pool_images", filename)
 
-@app.route("/ping", methods=["GET"])
 @app.route("/admin/conversations.json")
 @require_admin
 def admin_conversations_json():
@@ -600,6 +599,14 @@ def admin_conversations_json():
         logger.error(f"/admin/conversations.json error: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route("/admin/conversations")
+@require_admin
+def admin_conversations_page():
+    return app.send_static_file("admin_dashboard.html")
+    # serves static/admin_dashboard.html
+    return app.send_static_file("admin_dashboard.html")
+
+@app.route("/ping", methods=["GET"])
 def ping():
     """Enhanced health check endpoint"""
     try:
