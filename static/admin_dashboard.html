@@ -1,0 +1,226 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Conversation Feed • Country Leisure</title>
+<style>
+  :root{--bg:#0b0c0f;--panel:#14161b;--muted:#8b93a7;--text:#e7eaf3;--line:#232733;--chip:#1f2430;--accent:#5aa1ff;--accent2:#7bdaff;--good:#4cd964}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,Segoe UI,Roboto,Arial}
+  header{position:sticky;top:0;z-index:2;background:linear-gradient(180deg,rgba(11,12,15,.95),rgba(11,12,15,.85) 40%,rgba(11,12,15,0));backdrop-filter:blur(8px);padding:16px 18px 10px;border-bottom:1px solid var(--line)}
+  h1{margin:0 0 8px;font-size:18px;letter-spacing:.2px}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .controls>div{display:flex;gap:8px;align-items:center}
+  input,select,button{background:var(--panel);color:var(--text);border:1px solid var(--line);padding:8px 10px;border-radius:10px;outline:none}
+  input::placeholder{color:var(--muted)} button.primary{background:linear-gradient(180deg,var(--accent),var(--accent2));color:#0b0c0f;border:none;font-weight:600}
+  button.ghost{background:transparent} main{padding:14px 18px 30px}
+  table{width:100%;border-collapse:separate;border-spacing:0 8px}
+  thead th{color:var(--muted);font-weight:600;text-align:left;padding:0 10px 6px}
+  tbody tr{background:var(--panel);border:1px solid var(--line);border-radius:12px}
+  tbody td{padding:12px 10px;vertical-align:top}
+  .ts{white-space:nowrap;color:var(--muted)} .idchip{background:var(--chip);padding:3px 8px;border-radius:999px;font-weight:600;cursor:pointer}
+  .msg{white-space:pre-wrap} .row{transition:background .2s ease}
+  .row.new{outline:1px solid var(--accent);box-shadow:0 0 0 2px rgba(90,161,255,.2) inset}
+  .kpi{display:flex;gap:16px;margin:10px 0}
+  .kpi div{background:var(--panel);border:1px solid var(--line);padding:10px 12px;border-radius:12px;color:var(--muted)}
+  .status{margin-left:auto;color:var(--muted)} .sep{width:1px;height:22px;background:var(--line)}
+  .nowrap{white-space:nowrap} .flex{display:flex;gap:10px;align-items:center} .grow{flex:1}
+</style>
+
+<header>
+  <div class="flex">
+    <h1>Conversation Feed</h1>
+    <div class="status" id="status">—</div>
+  </div>
+
+  <!-- Backend/Token (works both on Render and when opened as a local file) -->
+  <div class="controls">
+    <div class="grow">
+      <input id="backend" placeholder="Backend URL (e.g., https://rusty-enhanced-bot.onrender.com)">
+    </div>
+    <div class="grow">
+      <input id="token" placeholder="Admin token">
+    </div>
+    <button id="saveCreds" class="ghost">Save</button>
+    <div class="sep"></div>
+
+    <div><span class="nowrap">Limit</span>
+      <select id="limit"><option>50</option><option selected>100</option><option>200</option><option>500</option></select>
+    </div>
+    <div class="sep"></div>
+    <div><span class="nowrap">User ID</span><input id="uid" placeholder="optional"></div>
+    <div class="grow"><input id="q" placeholder="search message text (user or bot)"></div>
+    <div><span>Refresh</span>
+      <select id="rate">
+        <option value="0">Off</option>
+        <option value="2000" selected>2s</option>
+        <option value="5000">5s</option>
+        <option value="10000">10s</option>
+      </select>
+    </div>
+    <div class="sep"></div>
+    <div class="flex">
+      <button id="refresh" class="primary">Refresh now</button>
+      <button id="export" class="ghost">Export CSV</button>
+      <button id="copyLink" class="ghost">Copy sharable URL</button>
+  </div>
+  </div>
+
+  <div class="kpi">
+    <div>Rows: <b id="k_rows">0</b></div>
+    <div>Users: <b id="k_users">0</b></div>
+    <div>Last load: <b id="k_time">—</b></div>
+  </div>
+</header>
+
+<main>
+  <table>
+    <thead><tr><th>ID</th><th>Time</th><th>User</th><th>User Message</th><th>Bot Response</th></tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</main>
+
+<script>
+const isFileMode = location.protocol === "file:";
+const qs = new URLSearchParams(location.search);
+const tbody = document.getElementById("tbody");
+const statusEl= document.getElementById("status");
+const limitEl = document.getElementById("limit");
+const uidEl   = document.getElementById("uid");
+const qEl     = document.getElementById("q");
+const rateEl  = document.getElementById("rate");
+const kRows   = document.getElementById("k_rows");
+const kUsers  = document.getElementById("k_users");
+const kTime   = document.getElementById("k_time");
+const btnRefresh = document.getElementById("refresh");
+const btnExport  = document.getElementById("export");
+const btnCopy    = document.getElementById("copyLink");
+const backendEl  = document.getElementById("backend");
+const tokenEl    = document.getElementById("token");
+const saveCreds  = document.getElementById("saveCreds");
+
+function loadCreds(){
+  // Prefer query string if present; else localStorage; else defaults
+  const ls = JSON.parse(localStorage.getItem("admin_dash_cfg")||"{}");
+  const backend = qs.get("backend") || ls.backend || (isFileMode ? "" : location.origin);
+  const token   = qs.get("token")   || ls.token   || "";
+  backendEl.value = backend;
+  tokenEl.value = token;
+}
+function saveCredsNow(){
+  localStorage.setItem("admin_dash_cfg", JSON.stringify({
+    backend: backendEl.value.trim(),
+    token: tokenEl.value.trim()
+  }));
+  statusEl.textContent = "Saved.";
+  setTimeout(()=>statusEl.textContent="—", 1000);
+}
+saveCreds.onclick = saveCredsNow;
+loadCreds();
+
+let timer=null, lastIds=new Set();
+
+function apiBase(){
+  const b = backendEl.value.trim();
+  if(!b){ alert("Set Backend URL first."); throw new Error("no-backend"); }
+  return b.replace(/\/+$/,"");
+}
+function rel(d){
+  const t = new Date(d);
+  const s = Math.floor((Date.now()-t)/1000);
+  if(s<60) return s+"s ago";
+  const m = Math.floor(s/60); if(m<60) return m+"m ago";
+  const h = Math.floor(m/60); if(h<24) return h+"h ago";
+  const dd= Math.floor(h/24); return dd+"d ago";
+}
+function csvEscape(s){ return '"' + (s||"").replaceAll('"','""') + '"'; }
+
+async function loadOnce(){
+  try{
+    const params = new URLSearchParams({ limit: limitEl.value, token: tokenEl.value.trim() });
+    if(uidEl.value.trim()) params.set("user_id", uidEl.value.trim());
+    const res = await fetch(apiBase()+"/admin/conversations.json?"+params.toString());
+    if(!res.ok){ statusEl.textContent = "error "+res.status; return; }
+    const data = await res.json();
+
+    // Client-side search
+    const q = qEl.value.trim().toLowerCase();
+    const items = q
+      ? data.items.filter(r => (r.user_message||"").toLowerCase().includes(q) || (r.bot_response||"").toLowerCase().includes(q))
+      : data.items;
+
+    tbody.innerHTML = "";
+    const seenUsers = new Set();
+    for(const row of items){
+      seenUsers.add(row.user_id);
+      const tr = document.createElement("tr");
+      tr.className = "row";
+      if(!lastIds.has(row.id)) tr.classList.add("new");
+
+      tr.innerHTML = `
+        <td>${row.id}</td>
+        <td class="ts" title="${row.ts}">${row.ts.replace('T',' ').replace('Z','')} · ${rel(row.ts)}</td>
+        <td><span class="idchip" title="click to copy" data-copy="${row.user_id}">${row.user_id}</span></td>
+        <td class="msg">${(row.user_message||"").replaceAll('<','&lt;')}</td>
+        <td class="msg">${(row.bot_response||"").replaceAll('<','&lt;')}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+    // Copy-on-click user id
+    [...document.querySelectorAll(".idchip")].forEach(el=>{
+      el.onclick = ()=>{ navigator.clipboard.writeText(el.dataset.copy); el.style.outline="1px solid var(--good)"; setTimeout(()=>el.style.outline="",500); };
+    });
+
+    // KPIs
+    kRows.textContent = items.length;
+    kUsers.textContent = seenUsers.size;
+    kTime.textContent = new Date().toLocaleTimeString();
+    statusEl.textContent = `Loaded ${items.length} rows`;
+
+    // Update "seen" ids
+    lastIds = new Set(data.items.map(x=>x.id));
+    setTimeout(()=>document.querySelectorAll(".row.new").forEach(r=>r.classList.remove("new")), 1200);
+
+  }catch(err){
+    statusEl.textContent = err.message || "load error";
+  }
+}
+
+function setRate(){
+  if(timer) clearInterval(timer), timer=null;
+  const ms = parseInt(rateEl.value,10);
+  if(ms>0) timer = setInterval(loadOnce, ms);
+}
+document.getElementById("refresh").onclick = loadOnce;
+rateEl.onchange = setRate;
+qEl.oninput = ()=>loadOnce();
+
+btnExport.onclick = ()=>{
+  const rows = [["id","ts","user_id","user_message","bot_response"]];
+  [...tbody.querySelectorAll("tr")].forEach(tr=>{
+    const tds = tr.querySelectorAll("td");
+    rows.push([tds[0].innerText, tds[1].innerText.split(" · ")[0], tds[2].innerText, tds[3].innerText, tds[4].innerText]);
+  });
+  const csv = rows.map(r=>r.map(csvEscape).join(",")).join("\n");
+  const blob = new Blob([csv], {type:"text/csv"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "conversation_feed.csv";
+  a.click();
+};
+
+btnCopy.onclick = ()=>{
+  const url = new URL(location.href);
+  url.searchParams.set("backend", backendEl.value.trim());
+  url.searchParams.set("token", tokenEl.value.trim());
+  navigator.clipboard.writeText(url.toString());
+  statusEl.textContent = "URL copied";
+  setTimeout(()=>statusEl.textContent="—", 1000);
+};
+
+// Initialize
+// If served via Flask, prefill from querystring
+if(!isFileMode){
+  if(qs.get("token")) tokenEl.value = qs.get("token");
+}
+// First load + auto refresh
+loadOnce(); setRate();
+</script>
