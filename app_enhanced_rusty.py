@@ -21,6 +21,20 @@ PUBLIC_URL = os.getenv("PUBLIC_URL", "https://yourdomain.com")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+from functools import wraps
+from flask import abort
+
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
+
+def require_admin(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        token = request.args.get("token") or request.headers.get("X-Admin-Token", "")
+        if not ADMIN_TOKEN or token != ADMIN_TOKEN:
+            return abort(401)
+        return f(*args, **kwargs)
+    return wrapper
+
 app = Flask(__name__)
 CORS(app, origins=["*"], methods=["GET", "POST"], allow_headers=["Content-Type"])
 app.secret_key = os.getenv("SESSION_SECRET", "something-very-secret")
@@ -548,6 +562,44 @@ def gallery_image(filename):
     return send_from_directory("static/pool_images", filename)
 
 @app.route("/ping", methods=["GET"])
+@app.route("/admin/conversations.json")
+@require_admin
+def admin_conversations_json():
+    """Recent conversation turns from Postgres."""
+    try:
+        limit = max(1, min(int(request.args.get("limit", 100)), 500))
+        user_id = request.args.get("user_id")
+        rows = []
+        with memory_manager._get_connection() as conn:
+            with conn.cursor() as cur:
+                if user_id:
+                    cur.execute("""
+                        SELECT id, user_id, ts, user_message, bot_response
+                        FROM conversation_turns
+                        WHERE user_id = %s
+                        ORDER BY ts DESC
+                        LIMIT %s
+                    """, (user_id, limit))
+                else:
+                    cur.execute("""
+                        SELECT id, user_id, ts, user_message, bot_response
+                        FROM conversation_turns
+                        ORDER BY ts DESC
+                        LIMIT %s
+                    """, (limit,))
+                for r in cur.fetchall():
+                    rows.append({
+                        "id": r[0],
+                        "user_id": r[1],
+                        "ts": r[2].isoformat(),
+                        "user_message": r[3] or "",
+                        "bot_response": r[4] or "",
+                    })
+        return jsonify({"count": len(rows), "items": rows})
+    except Exception as e:
+        logger.error(f"/admin/conversations.json error: {e}")
+        return jsonify({"error": str(e)}), 500
+
 def ping():
     """Enhanced health check endpoint"""
     try:
