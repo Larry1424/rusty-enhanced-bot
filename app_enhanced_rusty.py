@@ -357,12 +357,12 @@ def chat():
             
             # Record CTA attempt (will be updated based on user response)
             memory_manager.record_cta_attempt(memory, cta_type, "pending")
-        
+            
         # 5. Detect conversation stalls and restart if needed
         if flow_engine.detect_conversation_stall(memory):
             restart_message = flow_engine.get_conversation_restart(memory)
             bot_response = restart_message
-        
+      
         # 6. Add intelligent follow-up if appropriate
         follow_up = flow_engine.get_intelligent_followup(memory, bot_response)
         if follow_up and not bot_response.endswith("?") and "render" not in bot_response.lower():
