@@ -221,12 +221,6 @@ class ConversationFlowEngine:
                 response += f" {philosophy}"
         
         return response
-
-    def get_intelligent_followup(self, memory: Dict, last_response: str) -> Optional[str]:
-        """Generate intelligent follow-up questions based on conversation context"""
-        key_facts = memory.get("key_facts", {})
-        buyer_stage = memory.get("buyer_stage", "browsing")
-        interactions_count = len(memory.get("interactions", []))
         
         # Don't add follow-ups to every response
     def get_intelligent_followup(self, memory: Dict, last_response: str) -> Optional[str]:
