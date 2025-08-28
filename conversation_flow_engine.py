@@ -346,7 +346,7 @@ class ConversationFlowEngine:
         
         # Check for repeated short responses
         short_responses = [i for i in recent_interactions if len(i.get("user", "").split()) <= 3]
-        if len(short_responses) >= 2:
+        if len(short_responses) >= 3:
             return True
         
         # Check for circular questions (asking same type of info)
