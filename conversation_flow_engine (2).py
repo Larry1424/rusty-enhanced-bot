@@ -229,8 +229,56 @@ class ConversationFlowEngine:
         interactions_count = len(memory.get("interactions", []))
         
         # Don't add follow-ups to every response
-        if random.random() < 0.4:  # 40% chance of follow-up
+    def get_intelligent_followup(self, memory: Dict, last_response: str) -> Optional[str]:
+        """Generate intelligent follow-up questions with lighter touch."""
+        key_facts = memory.get("key_facts", {})
+        buyer_stage = memory.get("buyer_stage", "browsing")
+        interactions_count = len(memory.get("interactions", []))
+        last_bot = (last_response or "").lower()
+
+        # 0) Do not stack a follow-up in later stages or after clear CTAs/prompts
+        if buyer_stage in ["considering", "ready"]:
+            return None  # fewer probes when they’re further along
+
+        # Avoid piling on after we already nudged a next step in the same turn
+        cta_signals = ["schedule", "set up", "book", "consult", "render", "site check", "visit"]
+        if any(sig in last_bot for sig in cta_signals):
             return None
+
+        # 1) Global probability: ~60% NO follow-up, ~40% follow-up
+        import random
+        if random.random() < 0.60:
+            return None
+
+        # 2) Early conversation: light discovery
+        if buyer_stage == "browsing" and interactions_count <= 3:
+            return random.choice([
+                "What’s drawing you to cocktail pools specifically?",
+                "Tell me a bit about your backyard space.",
+                "Are you thinking more relaxing or entertaining?"
+            ])
+
+        # 3) Interested: get just enough detail to help
+        if buyer_stage == "interested":
+            if not key_facts.get("preferred_size"):
+                return random.choice([
+                    "Are you leaning toward the 12x24 or thinking bigger with the 14x28?",
+                    "What size feels right for your space?"
+                ])
+            if not key_facts.get("focus"):
+                return random.choice([
+                    "How do you picture using it most — quiet evenings or having people over?",
+                    "Is this more your personal retreat or the family gathering spot?"
+                ])
+            if not key_facts.get("features"):
+                return random.choice([
+                    "Any features catching your eye — tanning ledge, seating, or lighting?",
+                    "What would make this feel perfect for your routine?"
+                ])
+
+        # 4) Default: vary general follow-ups
+        return random.choice(self.followup_variations)
+
         
         # Contextual follow-ups based on what we know
         if buyer_stage == "browsing" and interactions_count <= 3:
