@@ -2,15 +2,14 @@ from flask import Flask, request, jsonify, session, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
 from datetime import datetime
+from events_api import events_bp
 import openai
 import os
 import logging
 import json
 import re
-from flask_cors import CORS, cross_origin
 from enhanced_memory_manager import EnhancedMemoryManager
-from conversation_flow_engine import ConversationFlowEngine  # FIXED: matches your working filename
-print("Deployment test: This should trigger a redeploy.")
+from conversation_flow_engine import ConversationFlowEngine
 
 # Load environment variables
 load_dotenv()
@@ -21,22 +20,9 @@ PUBLIC_URL = os.getenv("PUBLIC_URL", "https://yourdomain.com")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from functools import wraps
-from flask import abort
-
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
-
-def require_admin(f):
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        token = request.args.get("token") or request.headers.get("X-Admin-Token", "")
-        if not ADMIN_TOKEN or token != ADMIN_TOKEN:
-            return abort(401)
-        return f(*args, **kwargs)
-    return wrapper
-
 app = Flask(__name__)
-CORS(app, origins=["*"], methods=["GET", "POST"], allow_headers=["Content-Type"])
+app.register_blueprint(events_bp)
+CORS(app)
 app.secret_key = os.getenv("SESSION_SECRET", "something-very-secret")
 
 # Initialize Enhanced Systems
@@ -50,11 +36,11 @@ flow_engine = ConversationFlowEngine()
 
 # Enhanced System Prompt with Philosophy Integration
 SYSTEM_PROMPT = """
-You are a helpful, conversational guide for Country Leisure – a family-run pool and spa company in Oklahoma.
+You are a helpful, conversational guide for Country Leisure — a family-run pool and spa company in Oklahoma.
 
-We specialize in cocktail pools – compact, elegant inground pools designed for relaxation, entertaining, and stylish backyard retreats. These pools become the gathering place where families create lasting memories.
+We specialize in cocktail pools — compact, elegant inground pools designed for relaxation, entertaining, and stylish backyard retreats. These pools become the gathering place where families create lasting memories.
 
-Your tone is confident, relaxed, and human – like Rusty chatting with a neighbor. You're here to help people explore their options, answer questions clearly, and offer helpful ideas without being pushy.
+Your tone is confident, relaxed, and human — like Rusty chatting with a neighbor. You're here to help people explore their options, answer questions clearly, and offer helpful ideas without being pushy.
 
 IMPORTANT: You are trained by Rusty, a Master CBP (Certified Building Professional) with over two decades of experience. Mention this when quality, experience, or credentials come up.
 
@@ -81,9 +67,9 @@ PROCESS OVERVIEW:
 4. **Final Touches:** Personal pool school walkthrough included.
 
 DESIGN PHILOSOPHY (Rusty's Approach):
-- **Purpose-Driven Design:** Every element serves a function – relaxation, entertainment, or space enhancement
+- **Purpose-Driven Design:** Every element serves a function — relaxation, entertainment, or space enhancement
 - **Clean Geometry:** Simple, modern lines that complement the home and landscape
-- **Water as the Feature:** Clean, reflective, minimal – let the water be the centerpiece
+- **Water as the Feature:** Clean, reflective, minimal — let the water be the centerpiece
 - **Lighting = Mood:** Underwater lighting transforms the pool into a showpiece at night
 - **Materials That Last:** Concrete coping and quality tile that withstand Oklahoma weather
 - **Minimalism + Comfort:** Simple luxury with purposeful upgrades like tanning ledges and benches
@@ -95,26 +81,26 @@ Conversation Style:
 You're not scripted. You respond like a real person would.
 
 - Keep the tone easygoing, conversational, and confident
-- Guide people with helpful ideas – not pushy advice  
-- Vary your language – never repeat the same phrasing
+- Guide people with helpful ideas — not pushy advice  
+- Vary your language — never repeat the same phrasing
 - Build on previous conversation context naturally
 - Ask thoughtful follow-up questions about lifestyle, space, priorities, or vision
-- Never sound robotic – keep it flowing and natural
+- Never sound robotic — keep it flowing and natural
 
 VOICE EXAMPLES (use variations):
 - "Some folks enjoy..."  
 - "Totally optional, but..."  
 - "A lot of people love the simplicity of..."  
-- "If your space is a little tricky, no worries – we've seen it all."
+- "If your space is a little tricky, no worries — we've seen it all."
 
 BUDGET CONVERSATIONS:
-If price feels high: "Totally understand – we also offer semi-inground pools starting around $40,000, and above-ground pools starting around $10,000 installed. Both are great ways to get that backyard pool feel with a more approachable budget."
-                        
+If price feels high: "Totally understand — we also offer semi-inground pools starting around $40,000. Great way to get that backyard pool feel with a more approachable budget."
+
 QUALITY DISCUSSIONS:
-Emphasize materials that last: "We stick with materials that hold up – concrete coping and solid tile so you're not redoing things in a few years."
+Emphasize materials that last: "We stick with materials that hold up — concrete coping and solid tile so you're not redoing things in a few years."
 
 GATHERING PLACE MESSAGING:
-Emphasize: "These pools become where your family naturally gathers – kids, grandkids, friends. It's about creating that space where memories happen."
+Emphasize: "These pools become where your family naturally gathers — kids, grandkids, friends. It's about creating that space where memories happen."
 
 ---
 
@@ -142,16 +128,7 @@ The customer's journey should feel natural and progressive, not repetitive or pu
 """
 
 def get_or_create_user_id():
-    """Get user ID from request or session or create a new one"""
-    # First check if user_id was sent in the request
-    request_data = request.get_json() or {}
-    user_id = request_data.get("user_id")
-    
-    if user_id:
-        session["user_id"] = user_id
-        return user_id
-        
-    # Otherwise check session
+    """Get user ID from session or create a new one"""
     if "user_id" not in session:
         session["user_id"] = memory_manager._generate_user_id()
         logger.info(f"Created new session for user: {session['user_id']}")
@@ -296,131 +273,6 @@ def log_conversation(user_id, user_message, bot_response, memory_context=""):
     except Exception as e:
         logger.error(f"Error logging conversation: {e}")
 
-@app.route("/chat", methods=["POST"])
-def chat():
-    """Enhanced chat endpoint with full conversation intelligence"""
-    try:
-        user_message = request.json.get("message", "")
-        if not user_message.strip():
-            return jsonify({"error": "Empty message"}), 400
-
-        # Get or create user ID
-        user_id = get_or_create_user_id()
-
-        # Load user memory
-        memory = memory_manager.load_memory(user_id)
-        logger.info(f"Processing message for user {user_id} - Stage: {memory.get('buyer_stage')}, Engagement: {memory.get('engagement_level')}")
-        
-        # Check for returning user opening message
-        opening_message = None
-        if len(memory.get("interactions", [])) > 2:
-            opening_message = flow_engine.get_opening_message(memory)
-        
-        # Build conversation context summary
-        context_summary = memory_manager.build_context_summary(memory)
-        
-        # Build complete message history for API
-        message_history = build_message_history(memory, user_message, context_summary, opening_message)
-        
-        # Log memory state for debugging
-        logger.info(f"User {user_id} context: {context_summary[:150]}...")
-        
-        # Call OpenAI API
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",
-            messages=message_history,
-            temperature=0.7,
-            max_tokens=800
-        )
-        
-        bot_response = response.choices[0].message["content"]
-        
-        # Process the response with conversation intelligence
-        
-        # 1. Add credibility if needed
-        if flow_engine.should_add_credibility(user_message, memory):
-            credibility = flow_engine.get_credibility_statement()
-            bot_response += f" {credibility}"
-        
-        # 2. Integrate design philosophy
-        bot_response = flow_engine.enhance_response_with_philosophy(bot_response, memory)
-        
-        # 3. Handle render workflow if active
-        if memory.get("render_requested") or "render" in user_message.lower() or "visual" in user_message.lower():
-            bot_response = handle_render_workflow(memory, user_message, bot_response)
-        
-        # 4. Check for CTA opportunities
-        should_cta, cta_type = memory_manager.should_attempt_cta(memory)
-        if should_cta and "render" not in bot_response.lower() and "consult" not in bot_response.lower():
-            cta_message = flow_engine.get_cta_message(memory, cta_type)
-            bot_response += f"\n\n{cta_message}"
-            
-            # Record CTA attempt (will be updated based on user response)
-            memory_manager.record_cta_attempt(memory, cta_type, "pending")
-            
-        # 5. Detect conversation stalls and restart if needed
-        if flow_engine.detect_conversation_stall(memory):
-            restart_message = flow_engine.get_conversation_restart(memory)
-            bot_response = restart_message
-      
-        # 6. Add intelligent follow-up if appropriate
-        follow_up = flow_engine.get_intelligent_followup(memory, bot_response)
-        if follow_up and not bot_response.endswith("?") and "render" not in bot_response.lower():
-            bot_response += f" {follow_up}"
-        
-        # Add interaction to memory
-        memory_manager.add_interaction(memory, user_message, bot_response)
-        
-        # Save updated memory
-        memory_manager.save_memory(memory)
-        
-        # Enhanced logging
-        log_conversation(user_id, user_message, bot_response, context_summary)
-        
-        # Return response with enhanced metadata
-        return jsonify({
-            "reply": bot_response,
-            "user_id": user_id,
-            "buyer_stage": memory.get("buyer_stage"),
-            "engagement_level": memory.get("engagement_level"),
-            "render_status": memory_manager.get_render_workflow_stage(memory)
-        })
-        
-    except openai.error.OpenAIError as e:
-        logger.error(f"OpenAI API error: {e}")
-        return jsonify({"error": "Sorry, I'm having trouble connecting right now. Please try again."}), 500
-    except Exception as e:
-        logger.error(f"Unexpected error in chat: {e}")
-        return jsonify({"error": "Something went wrong. Please try again."}), 500
-
-@app.route("/memory/<user_id>", methods=["GET"])
-def get_user_memory(user_id):
-    """Debug endpoint to view comprehensive user memory"""
-    try:
-        stats = memory_manager.get_user_stats(user_id)
-        return jsonify(stats)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/render-status/<user_id>", methods=["GET"])
-def get_render_status(user_id):
-    """Get render workflow status for a user"""
-    try:
-        memory = memory_manager.load_memory(user_id)
-        render_stage = memory_manager.get_render_workflow_stage(memory)
-        missing_fields = get_missing_contact_fields(memory)
-        
-        return jsonify({
-            "user_id": user_id,
-            "render_requested": memory.get("render_requested", False),
-            "render_stage": render_stage,
-            "contact_info": memory.get("contact_info", {}),
-            "missing_fields": missing_fields,
-            "render_details": memory.get("render_details", {})
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 @app.route("/cta-test/<user_id>", methods=["POST"])
 def test_cta_logic(user_id):
     """Test CTA logic for a specific user (development endpoint)"""
@@ -450,39 +302,17 @@ def test_cta_logic(user_id):
 def simulate_response():
     """Simulate user response to CTA (development endpoint)"""
     try:
-        data = request.json or {}
+        data = request.json
         user_id = data.get("user_id")
         cta_type = data.get("cta_type", "consult")
-        response_text = data.get("response", "not yet")
-
-        # Load memory for context if available
-        memory = memory_manager.load_memory(user_id) if user_id else {}
-
-        # Best-effort DB log of this simulated turn
-        try:
-            with memory_manager._get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        INSERT INTO conversation_turns (user_id, user_message, bot_response)
-                        VALUES (%s, %s, %s)
-                        """,
-                        (
-                            user_id,
-                            f"CTA response: {cta_type} → {response_text}",
-                            (
-                                f"Updated stage: {memory.get('buyer_stage')}, "
-                                f"Render requested: {memory.get('render_requested')}"
-                            )
-                        )
-                    )
-                conn.commit()
-        except Exception as e:
-            logger.error(f"Failed to insert conversation_turn (CTA): {e}")
-
-        # Return to the client AFTER the logging attempt
+        response = data.get("response", "not yet")
+        
+        memory = memory_manager.load_memory(user_id)
+        memory_manager.record_cta_attempt(memory, cta_type, response)
+        memory_manager.save_memory(memory)
+        
         return jsonify({
-            "message": f"Recorded {cta_type} CTA response: {response_text}",
+            "message": f"Recorded {cta_type} CTA response: {response}",
             "updated_stage": memory.get("buyer_stage"),
             "render_requested": memory.get("render_requested")
         })
@@ -606,49 +436,6 @@ def gallery_image(filename):
     """Serve gallery images"""
     return send_from_directory("static/pool_images", filename)
 
-@app.route("/admin/conversations.json")
-@require_admin
-def admin_conversations_json():
-    """Recent conversation turns from Postgres."""
-    try:
-        limit = max(1, min(int(request.args.get("limit", 100)), 500))
-        user_id = request.args.get("user_id")
-        rows = []
-        with memory_manager._get_connection() as conn:
-            with conn.cursor() as cur:
-                if user_id:
-                    cur.execute("""
-                        SELECT id, user_id, ts, user_message, bot_response
-                        FROM conversation_turns
-                        WHERE user_id = %s
-                        ORDER BY ts DESC
-                        LIMIT %s
-                    """, (user_id, limit))
-                else:
-                    cur.execute("""
-                        SELECT id, user_id, ts, user_message, bot_response
-                        FROM conversation_turns
-                        ORDER BY ts DESC
-                        LIMIT %s
-                    """, (limit,))
-                for r in cur.fetchall():
-                    rows.append({
-                        "id": r[0],
-                        "user_id": r[1],
-                        "ts": r[2].isoformat(),
-                        "user_message": r[3] or "",
-                        "bot_response": r[4] or "",
-                    })
-        return jsonify({"count": len(rows), "items": rows})
-    except Exception as e:
-        logger.error(f"/admin/conversations.json error: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/admin/conversations")
-@require_admin
-def admin_conversations_page():
-    return app.send_static_file("admin_dashboard.html")
-
 @app.route("/ping", methods=["GET"])
 def ping():
     """Enhanced health check endpoint"""
@@ -670,20 +457,147 @@ def ping():
     })
 
 # Optional: Cleanup expired memories on startup
-if __name__ == "__main__":
-    with app.app_context():
-        try:
-            # Cleanup expired memories
-            cleaned = memory_manager.cleanup_expired_memories()
-            if cleaned > 0:
-                logger.info(f"Startup cleanup: removed {cleaned} expired memory records")
-            
-            # Log system initialization
-            logger.info("Enhanced Rusty chatbot initialized successfully")
-            logger.info(f"Memory expiry: {memory_manager.expiry_days} days")
-            logger.info(f"Max interactions per user: {memory_manager.max_interactions}")
+@app.before_first_request
+def startup_cleanup():
+    """Enhanced startup tasks"""
+    try:
+        # Cleanup expired memories
+        cleaned = memory_manager.cleanup_expired_memories()
+        if cleaned > 0:
+            logger.info(f"Startup cleanup: removed {cleaned} expired memory records")
         
-        except Exception as e:
-            logger.error(f"Error during startup cleanup: {e}")
+        # Log system initialization
+        logger.info("Enhanced Rusty chatbot initialized successfully")
+        logger.info(f"Memory expiry: {memory_manager.expiry_days} days")
+        logger.info(f"Max interactions per user: {memory_manager.max_interactions}")
+        
+    except Exception as e:
+        logger.error(f"Error during startup cleanup: {e}")
 
-    app.run()
+if __name__ == "__main__":
+    app.run(debug=True).route("/chat", methods=["POST"])
+def chat():
+    """Enhanced chat endpoint with full conversation intelligence"""
+    try:
+        user_message = request.json.get("message", "")
+        if not user_message.strip():
+            return jsonify({"error": "Empty message"}), 400
+            
+        # Get or create user ID
+        user_id = get_or_create_user_id()
+        
+        # Load user memory
+        memory = memory_manager.load_memory(user_id)
+        logger.info(f"Processing message for user {user_id} - Stage: {memory.get('buyer_stage')}, Engagement: {memory.get('engagement_level')}")
+        
+        # Check for returning user opening message
+        opening_message = None
+        if len(memory.get("interactions", [])) > 2:
+            opening_message = flow_engine.get_opening_message(memory)
+        
+        # Build conversation context summary
+        context_summary = memory_manager.build_context_summary(memory)
+        
+        # Build complete message history for API
+        message_history = build_message_history(memory, user_message, context_summary, opening_message)
+        
+        # Log memory state for debugging
+        logger.info(f"User {user_id} context: {context_summary[:150]}...")
+        
+        # Call OpenAI API
+        response = openai.ChatCompletion.create(
+            model="gpt-4o",
+            messages=message_history,
+            temperature=0.7,
+            max_tokens=800
+        )
+        
+        bot_response = response.choices[0].message["content"]
+        
+        # Process the response with conversation intelligence
+        
+        # 1. Add credibility if needed
+        if flow_engine.should_add_credibility(user_message, memory):
+            credibility = flow_engine.get_credibility_statement()
+            bot_response += f" {credibility}"
+        
+        # 2. Integrate design philosophy
+        bot_response = flow_engine.enhance_response_with_philosophy(bot_response, memory)
+        
+        # 3. Handle render workflow if active
+        if memory.get("render_requested") or "render" in user_message.lower() or "visual" in user_message.lower():
+            bot_response = handle_render_workflow(memory, user_message, bot_response)
+        
+        # 4. Check for CTA opportunities
+        should_cta, cta_type = memory_manager.should_attempt_cta(memory)
+        if should_cta and "render" not in bot_response.lower() and "consult" not in bot_response.lower():
+            cta_message = flow_engine.get_cta_message(memory, cta_type)
+            bot_response += f"\n\n{cta_message}"
+            
+            # Record CTA attempt (will be updated based on user response)
+            memory_manager.record_cta_attempt(memory, cta_type, "pending")
+        
+        # 5. Detect conversation stalls and restart if needed
+        if flow_engine.detect_conversation_stall(memory):
+            restart_message = flow_engine.get_conversation_restart(memory)
+            bot_response = restart_message
+        
+        # 6. Add intelligent follow-up if appropriate
+        follow_up = flow_engine.get_intelligent_followup(memory, bot_response)
+        if follow_up and not bot_response.endswith("?") and "render" not in bot_response.lower():
+            bot_response += f" {follow_up}"
+        
+        # Add interaction to memory
+        memory_manager.add_interaction(memory, user_message, bot_response)
+        
+        # Save updated memory
+        memory_manager.save_memory(memory)
+        
+        # Enhanced logging
+        log_conversation(user_id, user_message, bot_response, context_summary)
+        
+        # Return response with enhanced metadata
+        return jsonify({
+            "reply": bot_response,
+            "user_id": user_id,
+            "buyer_stage": memory.get("buyer_stage"),
+            "engagement_level": memory.get("engagement_level"),
+            "render_status": memory_manager.get_render_workflow_stage(memory)
+        })
+        
+    except openai.error.OpenAIError as e:
+        logger.error(f"OpenAI API error: {e}")
+        return jsonify({"error": "Sorry, I'm having trouble connecting right now. Please try again."}), 500
+    except Exception as e:
+        logger.error(f"Unexpected error in chat: {e}")
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
+@app.route("/memory/<user_id>", methods=["GET"])
+def get_user_memory(user_id):
+    """Debug endpoint to view comprehensive user memory"""
+    try:
+        stats = memory_manager.get_user_stats(user_id)
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/render-status/<user_id>", methods=["GET"])
+def get_render_status(user_id):
+    """Get render workflow status for a user"""
+    try:
+        memory = memory_manager.load_memory(user_id)
+        render_stage = memory_manager.get_render_workflow_stage(memory)
+        missing_fields = get_missing_contact_fields(memory)
+        
+        return jsonify({
+            "user_id": user_id,
+            "render_requested": memory.get("render_requested", False),
+            "render_stage": render_stage,
+            "contact_info": memory.get("contact_info", {}),
+            "missing_fields": missing_fields,
+            "render_details": memory.get("render_details", {})
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app
