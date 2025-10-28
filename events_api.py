@@ -1,9 +1,9 @@
+# events_api.py  — Blueprint version
 import os, json, hashlib
-from datetime import datetime
-from flask import Flask, request, jsonify
+from flask import Blueprint, request, jsonify
 import psycopg
 
-app = Flask(__name__)
+events_bp = Blueprint("events", __name__)
 DB_URL = os.getenv("RUSTY_DB_URL")
 
 def connect():
@@ -26,7 +26,7 @@ def get_or_create_session(cur, bot, session_external_id, ua, ip):
     """, (bot, session_external_id, ua, ip_hash))
     return cur.fetchone()[0]
 
-@app.post("/events/gpt")
+@events_bp.post("/events/gpt")
 def log_gpt_event():
     payload = request.get_json(force=True)
     bot = payload.get("bot", "pool-guide")
@@ -77,7 +77,7 @@ def log_gpt_event():
 
     return jsonify({"ok": True})
 
-@app.get("/health")
+@events_bp.get("/health")
 def health():
     try:
         with connect() as _:
@@ -85,6 +85,3 @@ def health():
         return {"status":"ok"}
     except Exception as e:
         return {"status":"db_error","detail":str(e)}, 500
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
